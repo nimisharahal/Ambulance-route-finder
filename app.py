@@ -25,11 +25,9 @@ VERIFIED = {
     "Shashi Prabha Hospital": {"keywords": ["shashi prabha", "shashiprabha"], "services": ["pregnancy"]},
 }
 
-
 def norm(text):
     # Sirf letters aur numbers rakho, baaki hata do
     return re.sub(r"[^a-z0-9]", "", text.lower())
-
 
 def matches(name, info):
     n = norm(name)
@@ -37,7 +35,6 @@ def matches(name, info):
         if norm(k) in n:
             return True
     return False
-
 
 def services_for(name):
     services = []
@@ -48,112 +45,83 @@ def services_for(name):
                     services.append(s)
     return services
 
+def hospitals_for(hospitals, emergency):
+    keys = {
+        "Heart Attack": "heart",
+        "Pregnancy": "pregnancy"
+    }
 
-def hospitals_for(emergency):
-    keys = {"Heart Attack": "heart", "Pregnancy": "pregnancy"}
     key = keys.get(emergency)
 
-    # Accident aur Other me saare hospitals
     if key is None:
         return hospitals, False
 
     matched = []
+
     for h in hospitals:
         if key in services_for(h["name"]):
             matched.append(h)
 
-    if len(matched) > 0:
+    if matched:
         return matched, False
 
-    # Koi nahi mila to saare dikhao aur note do
     return hospitals, True
 
 
-def load_hospitals():
-    # Moradabad ke hospitals OpenStreetMap (Nominatim) se laata hai
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {
-        "q": "hospital",
-        "format": "json",
-        "limit": 40,
-        "viewbox": "78.65,28.92,78.90,28.76",
-        "bounded": 1,
-    }
-    headers = {"User-Agent": "LifeLineRouteStudentProject/1.0"}
+def load_hospitals(lat=28.82, lon=78.78, radius=15000):
+    url = "https://overpass-api.de/api/interpreter"
+
+    query = f"""
+    [out:json][timeout:25];
+    (
+      node["amenity"="hospital"](around:{radius},{lat},{lon});
+      way["amenity"="hospital"](around:{radius},{lat},{lon});
+      relation["amenity"="hospital"](around:{radius},{lat},{lon});
+      node["healthcare"="hospital"](around:{radius},{lat},{lon});
+      way["healthcare"="hospital"](around:{radius},{lat},{lon});
+      relation["healthcare"="hospital"](around:{radius},{lat},{lon});
+    );
+    out center tags;
+    """
+
     try:
-        data = requests.get(url, params=params, headers=headers, timeout=20).json()
-    except Exception:
+        response = requests.post(
+            url,
+            data={"data": query},
+            headers={"User-Agent": "LifeLineRouteStudentProject/1.0"},
+            timeout=35
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print("Hospital search error:", e)
         return []
 
     found = []
     seen = set()
-    for item in data:
-        name = item["display_name"].split(",")[0].strip()
-        lat = float(item["lat"])
-        lon = float(item["lon"])
-        key = name + str(round(lat, 3)) + str(round(lon, 3))
-        if key not in seen:
-            seen.add(key)
-            found.append({"name": name, "lat": lat, "lon": lon})
-    return found
 
-
-def find_verified_hospitals(existing):
-    # Tumhari list ke jo hospitals map ke 40 me nahi aaye, unhe naam se dhoondho
-    added = []
-    for title, info in VERIFIED.items():
-        already = False
-        for h in existing:
-            if matches(h["name"], info):
-                already = True
-                break
-        if already:
+    for item in data.get("elements", []):
+        name = item.get("tags", {}).get("name")
+        if not name:
             continue
 
-        queries = [title + " Moradabad", info["keywords"][0] + " hospital Moradabad"]
-        for q in queries:
-            time.sleep(1)  # search service ka rule: 1 second me 1 request
-            try:
-                data = requests.get(
-                    "https://nominatim.openstreetmap.org/search",
-                    params={"q": q, "format": "json", "limit": 1,
-                            "viewbox": "78.55,29.0,79.0,28.7", "bounded": 1},
-                    headers={"User-Agent": "LifeLineRouteStudentProject/1.0"},
-                    timeout=20,
-                ).json()
-            except Exception:
-                data = []
-            if len(data) > 0:
-                lat = float(data[0]["lat"])
-                lon = float(data[0]["lon"])
-                added.append({"name": title, "lat": lat, "lon": lon})
-                print(" + dhoondh liya:", title, lat, lon)
-                break
-    return added
+        location = item.get("center", item)
+        if "lat" not in location or "lon" not in location:
+            continue
 
+        lat_value = float(location["lat"])
+        lon_value = float(location["lon"])
 
-hospitals = MANUAL_HOSPITALS + load_hospitals()
-hospitals = hospitals + find_verified_hospitals(hospitals)
+        key = (round(lat_value, 5), round(lon_value, 5))
+        if key not in seen:
+            seen.add(key)
+            found.append({
+                "name": name,
+                "lat": lat_value,
+                "lon": lon_value
+            })
 
-print("Hospitals mile:", len(hospitals))
-for h in hospitals:
-    print(" -", h["name"], "->", services_for(h["name"]))
-
-print("")
-print("Tumhari verified list ke ye hospitals map pe NAHI mile:")
-missing = 0
-for title, info in VERIFIED.items():
-    found_it = False
-    for h in hospitals:
-        if matches(h["name"], info):
-            found_it = True
-            break
-    if not found_it:
-        print(" -", title)
-        missing = missing + 1
-if missing == 0:
-    print(" (koi nahi, sab mil gaye)")
-
+    return found
 
 def get_route(lat, lon, hlat, hlon, name):
     # OSRM se asli road ka time, distance aur raasta mangao
@@ -174,56 +142,82 @@ def get_route(lat, lon, hlat, hlon, name):
         "geometry": route["geometry"]["coordinates"],
     }
 
-
 @app.route("/")
 def home():
     return render_template("index.html")
 
-
 @app.route("/hospitals")
 def get_hospitals():
-    global hospitals
-    if len(hospitals) == 0:
-        hospitals = MANUAL_HOSPITALS + load_hospitals()
-    emergency = request.args.get("type", "Other")
-    pool, fallback = hospitals_for(emergency)
-    return jsonify({"list": pool, "fallback": fallback})
+    try:
+        lat = float(request.args.get("lat"))
+        lon = float(request.args.get("lon"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Location coordinates are required"}), 400
 
+    emergency = request.args.get("type", "Other")
+
+    nearby_hospitals = MANUAL_HOSPITALS + load_hospitals(
+        lat=lat,
+        lon=lon,
+        radius=15000
+    )
+
+    pool, fallback = hospitals_for(nearby_hospitals, emergency)
+
+    return jsonify({
+        "list": pool,
+        "fallback": fallback
+    })
 
 @app.route("/find-route", methods=["POST"])
 def find_route():
     data = request.get_json()
-    lat = data["lat"]
-    lon = data["lon"]
+
+    try:
+        lat = float(data["lat"])
+        lon = float(data["lon"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Valid location is required"}), 400
+
     emergency = data.get("emergency", "Other")
 
-    pool, fallback = hospitals_for(emergency)
-    if len(pool) == 0:
-        return jsonify({"error": "Hospital list is empty"}), 404
+    nearby_hospitals = MANUAL_HOSPITALS + load_hospitals(
+        lat=lat,
+        lon=lon,
+        radius=15000
+    )
 
-    # Pehle seedhi doori se 5 sabse paas wale hospitals
+    pool, fallback = hospitals_for(nearby_hospitals, emergency)
+
+    if not pool:
+        return jsonify({"error": "No nearby hospitals found"}), 404
+
     nearest = sorted(
         pool,
         key=lambda h: (h["lat"] - lat) ** 2 + (h["lon"] - lon) ** 2
     )[:5]
 
     results = []
+
     for h in nearest:
         try:
             r = get_route(lat, lon, h["lat"], h["lon"], h["name"])
         except Exception:
             return jsonify({"error": "Internet or route server problem"}), 500
+
         if r is not None:
             results.append(r)
 
-    if len(results) == 0:
+    if not results:
         return jsonify({"error": "No route found"}), 404
 
-    # Sabse kam time wala pehle
     results.sort(key=lambda r: r["time"])
 
-    return jsonify({"best": results[0], "all": results})
-
+    return jsonify({
+        "best": results[0],
+        "all": results,
+        "fallback": fallback
+    })
 
 @app.route("/route-to", methods=["POST"])
 def route_to():
