@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LifeLine Route</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; color: #222; }
+  .banner { background: linear-gradient(90deg, #c62828, #ef5350); color: white; text-align: center; padding: 22px 10px; }
+  .banner h1 { margin: 0; font-size: 30px; }
+  .container { display: grid; grid-template-columns: 380px 1fr; gap: 20px; padding: 20px; max-width: 1300px; margin: 0 auto; }
+  .card { background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); margin-bottom: 16px; }
+  .card h3 { margin-top: 0; color: #c62828; }
+  label { font-size: 14px; font-weight: bold; display: block; margin-top: 10px; }
+  select, input { width: 100%; padding: 10px; margin-top: 4px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; }
+  button { width: 100%; padding: 12px; margin-top: 14px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; color: white; background: #c62828; }
+  button:hover { background: #a31f1f; }
+  button.secondary { background: #455a64; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  .hint { font-size: 13px; color: #666; margin-top: 8px; }
+  .status { font-size: 14px; font-weight: bold; color: #2e7d32; margin-top: 10px; }
+  .note { font-size: 13px; color: #e65100; font-weight: bold; margin-top: 6px; }
+  .error { color: #c62828; font-weight: bold; margin-top: 10px; }
+  #map { height: 560px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; }
+  .stat { background: #fdecea; border-radius: 10px; padding: 10px 4px; }
+  .stat .value { font-size: 16px; font-weight: bold; color: #c62828; }
+  .stat .label { font-size: 12px; color: #555; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; }
+  th { background: #fafafa; }
+  .emoji-icon { background: none; border: none; }
+  .em { font-size: 28px; line-height: 34px; text-align: center; }
+  .hname { background: white; color: #c62828; font-weight: bold; font-size: 12px; border: 1px solid #c62828; border-radius: 6px; padding: 2px 6px; }
+  .hide-labels .hname { display: none; }
+  #result { display: none; } .gbtn { display: block; text-align: center; margin-top: 14px; padding: 12px; background: #1a73e8; color: white; border-radius: 8px;
+  text-decoration: none; font-size: 16px; } .gbtn:hover { background: #1558b0; } .backup { margin-top: 12px; padding: 10px; background: #eef3f8; border-radius: 8px; font-size: 14px; } .backup a { color: #1a73e8; display: inline-block; margin-top: 6px; }
+  @media (max-width: 800px) {
+    .container { grid-template-columns: 1fr; }
+    #map { height: 400px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <h1>🚑 LifeLine Route</h1>
+</div>
+
+<div class="container">
+
+  <div>
+    <div class="card">
+      <h3>🚨 Emergency Details</h3>
+
+      <label>Emergency type</label>
+      <select id="emergency">
+        <option>Accident</option>
+        <option>Heart Attack</option>
+        <option>Pregnancy</option>
+        <option>Other</option>
+      </select>
+
+      <label>Ambulance Latitude</label>
+      <input type="number" id="lat" step="0.0001" value="28.8386">
+
+      <label>Ambulance Longitude</label>
+      <input type="number" id="lon" step="0.0001" value="78.7733">
+
+      <p class="hint">Click on the map to place the 🚑, then press Find Fastest Route. The app picks the best eligible hospital itself.</p>
+
+      <button class="secondary" id="gpsBtn">📍 Use My Location</button>
+      <button id="findBtn">🚑 Find Fastest Route</button>
+      <div id="hcount" class="status">Finding hospitals...</div>
+      <div id="note" class="note"></div>
+      <div id="error" class="error"></div>
+      <p class="hint">Time is based on normal road speed (no live traffic). Hospitals are filtered using a checked list. Always confirm by phone. Demo project: in a real emergency call 112.</p>
+    </div>
+
+    <div class="card" id="result">
+      <h3 id="resultTitle">Result</h3>
+      <div class="stats">
+        <div class="stat"><div class="value" id="rName">-</div><div class="label">🏥 Hospital</div></div>
+        <div class="stat"><div class="value" id="rTime">-</div><div class="label">⏱️ ETA</div></div>
+        <div class="stat"><div class="value" id="rDist">-</div><div class="label">📏 Distance</div></div>
+      </div>
+      <a id="gmapsBtn" class="gbtn" target="_blank" rel="noopener">🗺️ Open in Google Maps</a><div id="backup" class="backup"></div><h3 style="margin-top:18px;"></h3>
+      <table>
+        <thead>
+          <tr><th>Hospital</th><th>Time</th><th>Distance</th></tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+    <div id="map"></div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  var errorBox = document.getElementById("error");
+  var noteBox = document.getElementById("note");
+  var typeSelect = document.getElementById("emergency");
+  var latInput = document.getElementById("lat");
+  var lonInput = document.getElementById("lon");
+
+  // Koi bhi JavaScript error aaye to screen pe dikhega
+  window.onerror = function (msg, src, line) {
+    errorBox.textContent = "Error: " + msg + " (line " + line + ")";
+  };
+
+  // Map banao
+  var map = L.map("map").setView([28.8386, 78.7733], 13);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    subdomains: "abcd",
+    maxZoom: 19,
+    attribution: "© OpenStreetMap © CARTO"
+  }).addTo(map);
+
+  // Icons
+  var ambIcon = L.divIcon({
+    html: "<div class='em'>🚑</div>",
+    className: "emoji-icon",
+    iconSize: [34, 34],
+    iconAnchor: [17, 17]
+  });
+  var hospIcon = L.divIcon({
+    html: "<div class='em'>🏥</div>",
+    className: "emoji-icon",
+    iconSize: [34, 34],
+    iconAnchor: [17, 17]
+  });
+
+  // Ambulance ka marker
+  var ambMarker = L.marker([28.8386, 78.7733], { icon: ambIcon, draggable: true }).addTo(map);
+
+  // Hospitals aur route ki alag-alag layers
+  var hospLayer = L.layerGroup().addTo(map);
+  var routeGroup = L.layerGroup().addTo(map);
+
+  // Hospital icon pe click karne par popup me button (optional extra)
+  function makePopup(h) {
+    var box = document.createElement("div");
+    var title = document.createElement("b");
+    title.textContent = h.name;
+    var btn = document.createElement("button");
+    btn.textContent = "Route to this hospital";
+    btn.style.padding = "8px";
+    btn.style.fontSize = "13px";
+    btn.addEventListener("click", function () {
+      routeToHospital(h);
+    });
+    box.appendChild(title);
+    box.appendChild(btn);
+    return box;
+  }
+
+  // Emergency type ke hisab se hospitals mangao aur map pe lagao
+  function loadHospitals() {
+    var type = typeSelect.value;
+    document.getElementById("hcount").textContent = "Finding hospitals...";
+    noteBox.textContent = "";
+
+    fetch("/hospitals?type=" + encodeURIComponent(type))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        hospLayer.clearLayers();
+        data.list.forEach(function (h) {
+          var m = L.marker([h.lat, h.lon], { icon: hospIcon }).addTo(hospLayer);
+          m.bindTooltip(h.name, { permanent: true, direction: "top", offset: [0, -18], className: "hname" });
+          m.bindPopup(makePopup(h));
+        });
+        document.getElementById("hcount").textContent =
+          "🏥 " + data.list.length + " hospitals found for: " + type;
+        if (data.fallback) {
+          noteBox.textContent = "No hospital is marked for " + type + ". Showing all hospitals instead.";
+        }
+      })
+      .catch(function () {
+        document.getElementById("hcount").textContent = "";
+        errorBox.textContent = "Could not load hospitals";
+      });
+  }
+
+  // Emergency type badle to list aur result dono refresh
+  typeSelect.addEventListener("change", function () {
+    errorBox.textContent = "";
+    document.getElementById("result").style.display = "none";
+    routeGroup.clearLayers();
+    loadHospitals();
+  });
+
+  function setPosition(lat, lon) {
+    ambMarker.setLatLng([lat, lon]);
+    latInput.value = lat.toFixed(4);
+    lonInput.value = lon.toFixed(4);
+  }
+
+  // Map pe click karo to ambulance wahan aa jaye
+  map.on("click", function (e) {
+    setPosition(e.latlng.lat, e.latlng.lng);
+  });
+
+  // Ambulance ko drag karo
+  ambMarker.on("dragend", function () {
+    var p = ambMarker.getLatLng();
+    setPosition(p.lat, p.lng);
+  });
+
+  // Box me number badlo to marker bhi hile
+  function updateFromInputs() {
+    var lat = parseFloat(latInput.value);
+    var lon = parseFloat(lonInput.value);
+    if (!isNaN(lat) && !isNaN(lon)) {
+      ambMarker.setLatLng([lat, lon]);
+    }
+  }
+  latInput.addEventListener("change", updateFromInputs);
+  lonInput.addEventListener("change", updateFromInputs);
+
+  // "Use My Location" button
+  document.getElementById("gpsBtn").addEventListener("click", function () {
+    if (!navigator.geolocation) {
+      errorBox.textContent = "Location is not supported in this browser";
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      setPosition(pos.coords.latitude, pos.coords.longitude);
+      map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+    }, function () {
+      errorBox.textContent = "Could not get location. Please allow permission.";
+    });
+  });
+
+  // Zoom kam ho to naam chhupa do, zoom zyada ho to dikhao
+  function updateLabels() {
+    if (map.getZoom() < 14) {
+      map.getContainer().classList.add("hide-labels");
+    } else {
+      map.getContainer().classList.remove("hide-labels");
+    }
+  }
+  map.on("zoomend", updateLabels);
+  updateLabels();
+
+  var findBtn = document.getElementById("findBtn");
+
+  // "Find Fastest Route" button
+  findBtn.addEventListener("click", function () {
+    var lat = parseFloat(latInput.value);
+    var lon = parseFloat(lonInput.value);
+    errorBox.textContent = "";
+    findBtn.disabled = true;
+    findBtn.textContent = "Searching...";
+
+    fetch("/find-route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: lat, lon: lon, emergency: typeSelect.value })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          errorBox.textContent = data.error;
+        } else {
+          showResult(data);
+        }
+      })
+      .catch(function () {
+        errorBox.textContent = "Something went wrong. Please try again.";
+      })
+      .finally(function () {
+        findBtn.disabled = false;
+        findBtn.textContent = "🚑 Find Fastest Route";
+      });
+  });
+
+  // Chune hue hospital tak ka route mangao
+  function routeToHospital(h) {
+    var lat = parseFloat(latInput.value);
+    var lon = parseFloat(lonInput.value);
+    errorBox.textContent = "";
+    map.closePopup();
+
+    fetch("/route-to", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: lat, lon: lon, hlat: h.lat, hlon: h.lon, name: h.name })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          errorBox.textContent = data.error;
+        } else {
+          showResult(data);
+        }
+      })
+      .catch(function () {
+        errorBox.textContent = "Something went wrong. Please try again.";
+      });
+  }
+  // Google Maps button aur backup hospital
+  function showExtras(data) {
+    var best = data.best;
+    var from = latInput.value + "," + lonInput.value;
+
+    document.getElementById("gmapsBtn").href =
+      "https://www.google.com/maps/dir/?api=1&origin=" + from +
+      "&destination=" + best.hlat + "," + best.hlon + "&travelmode=driving";
+
+    var box = document.getElementById("backup");
+    box.innerHTML = "";
+
+    if (data.all.length < 2) {
+      return;
+    }
+
+    var second = data.all[1];
+    var text = document.createElement("div");
+    text.textContent = "🥈 Backup hospital: " + second.name + " (" + second.time + " min, " + second.distance + " km)";
+    box.appendChild(text);
+
+    var link = document.createElement("a");
+    link.href = "https://www.google.com/maps/dir/?api=1&origin=" + from +
+      "&destination=" + second.hlat + "," + second.hlon + "&travelmode=driving";
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Open backup in Google Maps";
+    box.appendChild(link);
+
+    var pts = second.geometry.map(function (c) {
+      return [c[1], c[0]];
+    });
+    L.polyline(pts, { color: "#607d8b", weight: 4, dashArray: "8 8" }).addTo(routeGroup);
+  }
+
+
+  function addCell(row, text) {
+    var td = document.createElement("td");
+    td.textContent = text;
+    row.appendChild(td);
+  }
+
+  // Result screen pe dikhao
+  function showResult(data) {
+    var best = data.best;
+
+    document.getElementById("result").style.display = "block";
+    document.getElementById("resultTitle").textContent = "🚨 " + typeSelect.value;
+    document.getElementById("rName").textContent = best.name;
+    document.getElementById("rTime").textContent = best.time + " min";
+    document.getElementById("rDist").textContent = best.distance + " km";
+
+    var body = document.getElementById("tableBody");
+    body.innerHTML = "";
+    data.all.forEach(function (h) {
+      var row = document.createElement("tr");
+      addCell(row, h.name);
+      addCell(row, h.time + " min");
+      addCell(row, h.distance + " km");
+      body.appendChild(row);
+    });
+
+    // Route ki laal line draw karo
+    routeGroup.clearLayers();
+    var points = best.geometry.map(function (c) {
+      return [c[1], c[0]];
+    });
+    var line = L.polyline(points, { color: "#c62828", weight: 6 }).addTo(routeGroup);
+    map.fitBounds(line.getBounds(), { padding: [30, 30] }); showExtras(data);
+  }
+
+  // Shuru me hospitals load karo
+  loadHospitals();
+</script>
+
+</body>
+</html>
