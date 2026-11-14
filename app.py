@@ -69,7 +69,7 @@ def hospitals_for(hospitals, emergency):
 
 
 def load_hospitals(lat=28.82, lon=78.78, radius=15000):
-    url = "https://overpass-api.de/api/interpreter"
+    url = "https://overpass.kumi.systems/api/interpreter"
 
     query = f"""
     [out:json][timeout:25];
